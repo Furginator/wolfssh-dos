@@ -1,4 +1,4 @@
-name: Setup fdwolfssh Project
+name: Setup fdwolfssh Complete Environment
 
 on:
   workflow_dispatch:
@@ -16,38 +16,41 @@ jobs:
       - name: Checkout This Repo
         uses: actions/checkout@v4
 
-      - name: Pull wolfSSL
+      - name: Pull Libraries (wolfSSL, wolfSSH, WATT-32)
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssl
           path: wolfssl
-          # Removed specific 'ref' to always grab the default branch
-
-      - name: Pull wolfSSH
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssh
           path: wolfssh
-          # Removed specific 'ref' to always grab the default branch
+      - uses: actions/checkout@v4
+        with:
+          repository: sezero/watt32
+          path: watt32
 
-      - name: Create DOS-Ready Structure
+      - name: Organize Structure
         run: |
-          mkdir -p include/wolfssl include/wolfssh src
+          mkdir -p include/wolfssl include/wolfssh include/watt32 src/watt32 lib
           
-          # Copy Headers
+          # Headers
           cp -r wolfssl/wolfssl/* ./include/wolfssl/
           cp -r wolfssh/wolfssh/* ./include/wolfssh/
+          cp -r watt32/inc/* ./include/watt32/
           
-          # Consolidate C files
+          # Source
           find wolfssl/wolfcrypt/src -name "*.c" -exec cp {} ./src/ \;
           find wolfssl/src -name "*.c" -exec cp {} ./src/ \;
           find wolfssh/src -name "*.c" -exec cp {} ./src/ \;
+          cp -r watt32/src/* ./src/watt32/
           
           # Clean up
-          rm -rf wolfssl wolfssh
+          rm -rf wolfssl wolfssh watt32
 
-      - name: Generate DOS Configs
+      - name: Create Configuration & Build Files
         run: |
+          # 1. user_settings.h
           cat <<EOF > user_settings.h
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
@@ -59,13 +62,24 @@ jobs:
           #define SIZEOF_LONG_LONG 8
           #define NO_WOLFSSL_DIR
           #define WOLFSSL_NO_FLOAT_FMT
-          #define WOLFSSL_STATIC_MEMORY
           #define HAVE_ECC
           #define HAVE_AESGCM
           #define HAVE_CURVE25519
           #define HAVE_ED25519
           EOF
 
+          # 2. WATTCP.CFG (Networking Config)
+          cat <<EOF > wattcp.cfg
+          # fdwolfssh Network Config
+          my_ip = dhcp
+          # If DHCP fails, uncomment and set manually:
+          # my_ip = 192.168.1.10
+          # netmask = 255.255.255.0
+          # gateway = 192.168.1.1
+          # nameserver = 8.8.8.8
+          EOF
+
+          # 3. fdssh.lnk (Linker Script)
           cat <<EOF > fdssh.lnk
           system dos32a
           name fdssh.exe
@@ -75,22 +89,24 @@ jobs:
           option quiet
           EOF
 
+          # 4. build.bat
           cat <<EOF > build.bat
           @echo off
-          echo Building fdwolfssh for FreeDOS...
-          wcc386 src\*.c -i=.\include -fpi87 -d2 -mf -dDWOLFSSL_USER_SETTINGS
+          echo Building fdwolfssh...
+          wcc386 src\*.c -i=.\include -i=.\include\watt32 -fpi87 -d2 -mf -dDWOLFSSL_USER_SETTINGS
           wlink @fdssh.lnk
           sb /b fdssh.exe
-          echo Done.
+          echo Done. Run FDSSH.EXE with your packet driver loaded.
           EOF
 
       - name: Upload Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: fdwolfssh-source-bundle
+          name: fdwolfssh-complete
           path: |
             include/
             src/
             user_settings.h
+            wattcp.cfg
             fdssh.lnk
             build.bat
