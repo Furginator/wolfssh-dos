@@ -16,19 +16,19 @@ jobs:
       - name: Checkout This Repo
         uses: actions/checkout@v4
 
-      - name: Pull wolfSSL (v5.7.2)
+      - name: Pull wolfSSL
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssl
           path: wolfssl
-          ref: v5.7.2
+          # Removed specific 'ref' to always grab the default branch
 
-      - name: Pull wolfSSH (v1.4.14)
+      - name: Pull wolfSSH
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssh
           path: wolfssh
-          ref: v1.4.14
+          # Removed specific 'ref' to always grab the default branch
 
       - name: Create DOS-Ready Structure
         run: |
@@ -39,7 +39,6 @@ jobs:
           cp -r wolfssh/wolfssh/* ./include/wolfssh/
           
           # Consolidate C files
-          # Note: We use find to catch all .c files in core src directories
           find wolfssl/wolfcrypt/src -name "*.c" -exec cp {} ./src/ \;
           find wolfssl/src -name "*.c" -exec cp {} ./src/ \;
           find wolfssh/src -name "*.c" -exec cp {} ./src/ \;
@@ -49,7 +48,6 @@ jobs:
 
       - name: Generate DOS Configs
         run: |
-          # user_settings.h
           cat <<EOF > user_settings.h
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
@@ -68,7 +66,6 @@ jobs:
           #define HAVE_ED25519
           EOF
 
-          # fdssh.lnk
           cat <<EOF > fdssh.lnk
           system dos32a
           name fdssh.exe
@@ -78,7 +75,6 @@ jobs:
           option quiet
           EOF
 
-          # build.bat
           cat <<EOF > build.bat
           @echo off
           echo Building fdwolfssh for FreeDOS...
