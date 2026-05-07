@@ -1,10 +1,9 @@
-name: Setup WolfSSH-DOS Project
+name: Setup fdwolfssh Project
 
 on:
   workflow_dispatch:
 
 env:
-  # This silences the Node.js warning and opts into the newer engine
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -14,19 +13,12 @@ jobs:
       - name: Checkout this repo
         uses: actions/checkout@v4
 
-      - name: Pull wolfSSL
-        # Using --branch v5.7.2 as a safe fallback if 5.8.0 tag isn't found
-        # Or change to 'master' for the absolute latest
+      - name: Pull wolfSSL and wolfSSH
         run: |
+          set -e
+          # Corrected URLs with full paths
           git clone --depth 1 https://github.com wolfssl
-          cd wolfssl && git fetch --tags
-          git checkout v5.7.2 || git checkout master
-
-      - name: Pull wolfSSH
-        run: |
           git clone --depth 1 https://github.com wolfssh
-          cd wolfssh && git fetch --tags
-          git checkout v1.4.14 || git checkout master
 
       - name: Create DOS-Ready Structure
         run: |
