@@ -1,0 +1,86 @@
+name: Setup fdwolfssh Project
+
+on:
+  workflow_dispatch: # This lets you click a "Run workflow" button in GitHub Actions
+
+jobs:
+  prepare-fdwolfssh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Pull wolfSSL (v5.8.0 for Watcom Support)
+        run: |
+          git clone --depth 1 --branch v5.8.0 https://github.com wolfssl
+
+      - name: Pull wolfSSH (v1.5.0 Stable)
+        run: |
+          git clone --depth 1 --branch v1.5.0 https://github.com wolfssh
+
+      - name: Create DOS-Ready Structure
+        run: |
+          # Create a unified include directory for Watcom
+          mkdir -p include/wolfssl
+          mkdir -p include/wolfssh
+          
+          # Copy headers to the unified include path
+          cp -r wolfssl/wolfssl/* ./include/wolfssl/
+          cp -r wolfssh/wolfssh/* ./include/wolfssh/
+          
+          # Setup Source directory
+          mkdir -p src
+          cp wolfssl/wolfcrypt/src/*.c ./src/
+          cp wolfssl/src/*.c ./src/
+          cp wolfssh/src/*.c ./src/
+          
+          # Clean up unneeded files to keep the DOS artifact small
+          rm -rf wolfssl wolfssh
+
+      - name: Create fdwolfssh user_settings.h
+        run: |
+          cat <<EOF > user_settings.h
+          /* fdwolfssh Configuration for FreeDOS */
+          #ifndef WOLFSSL_USER_SETTINGS
+          #define WOLFSSL_USER_SETTINGS
+          #endif
+
+          #define WOLFSSL_WATT32            /* Link with WATT-32 stack */
+          #define WOLFSSH_SERVER            /* Build as a server */
+          #define LITTLE_ENDIAN_ORDER       /* x86 DOS is Little Endian */
+          
+          #define SIZEOF_LONG 4
+          #define SIZEOF_LONG_LONG 8
+          
+          #define NO_WOLFSSL_DIR            /* Avoid POSIX directory calls */
+          #define WOLFSSL_NO_FLOAT_FMT      /* Smaller binary (no %f support) */
+          #define WOLFSSL_STATIC_MEMORY     /* Better for limited DOS RAM */
+          
+          /* Security Settings */
+          #define HAVE_ECC
+          #define HAVE_AESGCM
+          #define HAVE_CURVE25519
+          #define HAVE_ED25519
+          EOF
+
+      - name: Create Sample BUILD.BAT
+        run: |
+          cat <<EOF > build.bat
+          @echo off
+          echo Compiling fdwolfssh for FreeDOS...
+          REM wcc386 is the Watcom 32-bit compiler
+          REM -i=.\include points to headers
+          REM -fpi87 for x87 math
+          wcc386 src\*.c -i=.\include -fpi87 -d2 -mf
+          echo Done. Link with wlink system dos32a
+          EOF
+
+      - name: Upload fdwolfssh Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fdwolfssh-source-bundle
+          path: |
+            include/
+            src/
+            user_settings.h
+            build.bat
