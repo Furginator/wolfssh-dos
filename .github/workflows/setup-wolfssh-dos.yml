@@ -1,7 +1,10 @@
 name: Setup fdwolfssh Project
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # Run manually from the Actions tab
+
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -10,74 +13,76 @@ jobs:
   prepare-fdwolfssh:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout this repo
+      - name: Checkout your repo
         uses: actions/checkout@v4
 
       - name: Pull wolfSSL and wolfSSH
         run: |
           set -e
-          # Corrected URLs with full paths
-          git clone --depth 1 https://github.com wolfssl
-          git clone --depth 1 https://github.com wolfssh
+          git clone --depth 1 https://github.com
+          git clone --depth 1 https://github.com
 
       - name: Create DOS-Ready Structure
         run: |
-          # Create include paths
-          mkdir -p include/wolfssl
-          mkdir -p include/wolfssh
+          # Create clean include and source directories
+          mkdir -p include/wolfssl include/wolfssh src
           
-          # Copy headers
+          # Copy headers to unified include path
           cp -r wolfssl/wolfssl/* ./include/wolfssl/
           cp -r wolfssh/wolfssh/* ./include/wolfssh/
           
-          # Setup Source
-          mkdir -p src
+          # Move all necessary C files to a single source folder for simpler compilation
           cp wolfssl/wolfcrypt/src/*.c ./src/
           cp wolfssl/src/*.c ./src/
           cp wolfssh/src/*.c ./src/
           
-          # Clean up unneeded source to keep ZIP small
+          # Clean up original clones to keep the artifact light
           rm -rf wolfssl wolfssh
 
-      - name: Create fdwolfssh user_settings.h
+      - name: Create Configuration & Build Files
         run: |
+          # 1. Generate user_settings.h (The brain of the build)
           cat <<EOF > user_settings.h
-          /* fdwolfssh Configuration for FreeDOS */
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
           #endif
-
-          #define WOLFSSL_WATT32            /* WATT-32 TCP/IP Support */
+          #define WOLFSSL_WATT32            /* Link with WATT-32 stack */
           #define WOLFSSH_SERVER            /* Build as SSH Server */
           #define LITTLE_ENDIAN_ORDER       /* x86 is Little Endian */
-          
           #define SIZEOF_LONG 4
           #define SIZEOF_LONG_LONG 8
-          
-          #define NO_WOLFSSL_DIR            /* Standard DOS lacks POSIX dirs */
-          #define WOLFSSL_NO_FLOAT_FMT      /* Save memory, no floats */
-          #define WOLFSSL_STATIC_MEMORY     /* Optimize for DOS RAM limits */
-          
-          /* Modern Security primitives */
+          #define NO_WOLFSSL_DIR
+          #define WOLFSSL_NO_FLOAT_FMT
+          #define WOLFSSL_STATIC_MEMORY
           #define HAVE_ECC
           #define HAVE_AESGCM
           #define HAVE_CURVE25519
           #define HAVE_ED25519
           EOF
 
-      - name: Create build.bat
-        run: |
-          cat <<EOF > build.bat
-          @echo off
-          echo Starting fdwolfssh Build...
-          REM Watcom 32-bit compiler calls
-          REM -i=.\include for headers
-          REM -mf for flat memory model (32-bit)
-          wcc386 src\*.c -i=.\include -fpi87 -d2 -mf
-          echo Build complete. Use wlink to bind DOS32A.
+          # 2. Generate fdssh.lnk (Linker script for wlink)
+          cat <<EOF > fdssh.lnk
+          system dos32a
+          name fdssh.exe
+          file src/*.obj
+          library wattcp.lib
+          option stack=64k
+          option quiet
           EOF
 
-      - name: Upload Bundle
+          # 3. Generate build.bat (The DOS build script)
+          cat <<EOF > build.bat
+          @echo off
+          echo Building fdwolfssh for FreeDOS...
+          wcc386 src\*.c -i=.\include -fpi87 -d2 -mf -dDWOLFSSL_USER_SETTINGS
+          echo Linking...
+          wlink @fdssh.lnk
+          echo Finalizing with DOS32A...
+          sb /b fdssh.exe
+          echo Done: FDSSH.EXE created.
+          EOF
+
+      - name: Upload fdwolfssh Bundle
         uses: actions/upload-artifact@v4
         with:
           name: fdwolfssh-source-bundle
@@ -85,4 +90,5 @@ jobs:
             include/
             src/
             user_settings.h
+            fdssh.lnk
             build.bat
