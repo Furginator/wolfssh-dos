@@ -13,41 +13,43 @@ jobs:
   prepare-fdwolfssh:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout fdwolfssh (This Repo)
+      - name: Checkout This Repo
         uses: actions/checkout@v4
 
-      - name: Pull wolfSSL
+      - name: Pull wolfSSL (v5.7.2)
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssl
           path: wolfssl
-          ref: v5.9.1 # Use latest stable for Watcom support
+          ref: v5.7.2
 
-      - name: Pull wolfSSH
+      - name: Pull wolfSSH (v1.4.14)
         uses: actions/checkout@v4
         with:
           repository: wolfSSL/wolfssh
           path: wolfssh
-          ref: v1.5.0 # Latest stable
+          ref: v1.4.14
 
       - name: Create DOS-Ready Structure
         run: |
           mkdir -p include/wolfssl include/wolfssh src
           
-          # Move Headers
+          # Copy Headers
           cp -r wolfssl/wolfssl/* ./include/wolfssl/
           cp -r wolfssh/wolfssh/* ./include/wolfssh/
           
-          # Move Source Files
-          cp wolfssl/wolfcrypt/src/*.c ./src/
-          cp wolfssl/src/*.c ./src/
-          cp wolfssh/src/*.c ./src/
+          # Consolidate C files
+          # Note: We use find to catch all .c files in core src directories
+          find wolfssl/wolfcrypt/src -name "*.c" -exec cp {} ./src/ \;
+          find wolfssl/src -name "*.c" -exec cp {} ./src/ \;
+          find wolfssh/src -name "*.c" -exec cp {} ./src/ \;
           
-          # Clean original folders to save space
+          # Clean up
           rm -rf wolfssl wolfssh
 
-      - name: Generate Build Files
+      - name: Generate DOS Configs
         run: |
+          # user_settings.h
           cat <<EOF > user_settings.h
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
@@ -66,6 +68,7 @@ jobs:
           #define HAVE_ED25519
           EOF
 
+          # fdssh.lnk
           cat <<EOF > fdssh.lnk
           system dos32a
           name fdssh.exe
@@ -75,6 +78,7 @@ jobs:
           option quiet
           EOF
 
+          # build.bat
           cat <<EOF > build.bat
           @echo off
           echo Building fdwolfssh for FreeDOS...
