@@ -1,48 +1,47 @@
-name: Setup fdwolfssh Project
-
+name: Setup WolfSSH-DOS Project
 on:
   workflow_dispatch: # Run manually from the Actions tab
-
+  push:
+    branches: [main, master]
 permissions:
   contents: read
-
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   prepare-fdwolfssh:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest # Required for FreeDOS/DOS compilers
     steps:
       - name: Checkout your repo
         uses: actions/checkout@v4
-
+      
       - name: Pull wolfSSL and wolfSSH
         run: |
           set -e
-          git clone --depth 1 https://github.com
-          git clone --depth 1 https://github.com
-
+          git clone --depth 1 https://github.com/wolfSSL/wolfssl.git wolfssl
+          git clone --depth 1 https://github.com/wolfSSL/wolfssh.git wolfssh
+      
       - name: Create DOS-Ready Structure
         run: |
           # Create clean include and source directories
           mkdir -p include/wolfssl include/wolfssh src
-          
-          # Copy headers to unified include path
-          cp -r wolfssl/wolfssl/* ./include/wolfssl/
-          cp -r wolfssh/wolfssh/* ./include/wolfssh/
-          
-          # Move all necessary C files to a single source folder for simpler compilation
-          cp wolfssl/wolfcrypt/src/*.c ./src/
-          cp wolfssl/src/*.c ./src/
-          cp wolfssh/src/*.c ./src/
-          
-          # Clean up original clones to keep the artifact light
-          rm -rf wolfssl wolfssh
 
+          # Copy headers to unified include path
+          Copy-Item -Path "wolfssl\wolfssl\*.h" -Destination "./include/wolfssl/" -Recurse -Force
+          Copy-Item -Path "wolfssh\wolfssh\*.h" -Destination "./include/wolfssh/" -Recurse -Force
+
+          # Move all necessary C files to a single source folder for simpler compilation
+          Copy-Item -Path "wolfssl\wolfcrypt\src\*.c" -Destination "./src/" -Recurse -Force
+          Copy-Item -Path "wolfssl\src\*.c" -Destination "./src/" -Recurse -Force
+          Copy-Item -Path "wolfssh\src\*.c" -Destination "./src/" -Recurse -Force
+
+          # Clean up original clones to keep the artifact light
+          Remove-Item -Recurse -Force "wolfssl", "wolfssh"
+      
       - name: Create Configuration & Build Files
         run: |
           # 1. Generate user_settings.h (The brain of the build)
-          cat <<EOF > user_settings.h
+          $userSettings = @"
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
           #endif
@@ -58,20 +57,22 @@ jobs:
           #define HAVE_AESGCM
           #define HAVE_CURVE25519
           #define HAVE_ED25519
-          EOF
+          "@
+          $userSettings | Out-File -FilePath "user_settings.h"
 
           # 2. Generate fdssh.lnk (Linker script for wlink)
-          cat <<EOF > fdssh.lnk
+          $linkerScript = @"
           system dos32a
           name fdssh.exe
-          file src/*.obj
+          file src\*.obj
           library wattcp.lib
           option stack=64k
           option quiet
-          EOF
+          "@
+          $linkerScript | Out-File -FilePath "fdssh.lnk"
 
           # 3. Generate build.bat (The DOS build script)
-          cat <<EOF > build.bat
+          $buildBat = @"
           @echo off
           echo Building fdwolfssh for FreeDOS...
           wcc386 src\*.c -i=.\include -fpi87 -d2 -mf -dDWOLFSSL_USER_SETTINGS
@@ -80,8 +81,13 @@ jobs:
           echo Finalizing with DOS32A...
           sb /b fdssh.exe
           echo Done: FDSSH.EXE created.
-          EOF
-
+          "@
+          $buildBat | Out-File -FilePath "build.bat"
+          Set-Content -Path "build.bat" -Value $buildBat
+      - name: Build fdwolfssh
+        run: |
+          .\build.bat
+        shell: cmd
       - name: Upload fdwolfssh Bundle
         uses: actions/upload-artifact@v4
         with:
@@ -92,3 +98,6 @@ jobs:
             user_settings.h
             fdssh.lnk
             build.bat
+            fdssh.exe
+          if-no-files-found: ignore
+          retention-days: 7
