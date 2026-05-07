@@ -1,9 +1,7 @@
-name: Setup WolfSSH-DOS Project
+name: Setup fdwolfssh Project
 
 on:
-  workflow_dispatch: # Run manually from the Actions tab
-  push:
-    branches: [main, master]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,55 +10,51 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  prepare-wolfssh-dos:
-    runs-on: windows-latest
+  prepare-fdwolfssh:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout WolfSSH-DOS Repo
+      - name: Checkout fdwolfssh (This Repo)
         uses: actions/checkout@v4
-      
-      - name: Pull wolfSSL and wolfSSH
-        shell: pwsh
-        run: |
-          git clone --depth 1 https://github.com/wolfSSL/wolfssl.git wolfssl
-          git clone --depth 1 https://github.com/wolfSSL/wolfssh.git wolfssh
-          Write-Host "Cloned wolfSSL and wolfSSH successfully"
-      
+
+      - name: Pull wolfSSL
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfssl
+          path: wolfssl
+          ref: v5.9.1 # Use latest stable for Watcom support
+
+      - name: Pull wolfSSH
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfssh
+          path: wolfssh
+          ref: v1.5.0 # Latest stable
+
       - name: Create DOS-Ready Structure
-        shell: pwsh
         run: |
-          # Create directories
-          New-Item -ItemType Directory -Force -Path "include\wolfssl"
-          New-Item -ItemType Directory -Force -Path "include\wolfssh"
-          New-Item -ItemType Directory -Force -Path "src"
+          mkdir -p include/wolfssl include/wolfssh src
           
-          # Copy headers to unified include path
-          if (Test-Path "wolfssl\wolfssl") {
-            Get-ChildItem "wolfssl\wolfssl\*.h" | Copy-Item -Destination "include\wolfssl\" -ErrorAction SilentlyContinue
-          }
-          if (Test-Path "wolfssh\wolfssh") {
-            Get-ChildItem "wolfssh\wolfssh\*.h" | Copy-Item -Destination "include\wolfssh\" -ErrorAction SilentlyContinue
-          }
+          # Move Headers
+          cp -r wolfssl/wolfssl/* ./include/wolfssl/
+          cp -r wolfssh/wolfssh/* ./include/wolfssh/
           
-          # Move necessary C files to single source folder
-          Get-ChildItem "wolfssl\wolfcrypt\src\*.c" | Copy-Item -Destination "src\" -ErrorAction SilentlyContinue
-          Get-ChildItem "wolfssl\src\*.c" | Copy-Item -Destination "src\" -ErrorAction SilentlyContinue
-          Get-ChildItem "wolfssh\src\*.c" | Copy-Item -Destination "src\" -ErrorAction SilentlyContinue
+          # Move Source Files
+          cp wolfssl/wolfcrypt/src/*.c ./src/
+          cp wolfssl/src/*.c ./src/
+          cp wolfssh/src/*.c ./src/
           
-          # Clean up original clones
-          Remove-Item -Recurse -Force "wolfssl", "wolfssh"
-          Write-Host "Source structure ready"
-      
-      - name: Create Configuration Files
-        shell: pwsh
+          # Clean original folders to save space
+          rm -rf wolfssl wolfssh
+
+      - name: Generate Build Files
         run: |
-          # Generate user_settings.h
-          $userSettings = @"
+          cat <<EOF > user_settings.h
           #ifndef WOLFSSL_USER_SETTINGS
           #define WOLFSSL_USER_SETTINGS
           #endif
-          #define WOLFSSL_WATT32            /* Link with WATT-32 stack */
-          #define WOLFSSH_SERVER            /* Build as SSH Server */
-          #define LITTLE_ENDIAN_ORDER       /* x86 is Little Endian */
+          #define WOLFSSL_WATT32
+          #define WOLFSSH_SERVER
+          #define LITTLE_ENDIAN_ORDER
           #define SIZEOF_LONG 4
           #define SIZEOF_LONG_LONG 8
           #define NO_WOLFSSL_DIR
@@ -70,57 +64,33 @@ jobs:
           #define HAVE_AESGCM
           #define HAVE_CURVE25519
           #define HAVE_ED25519
-          "@
-          $userSettings | Out-File -FilePath "user_settings.h"
-          
-          # Generate fdssh.lnk linker script
-          $linkerScript = @"
+          EOF
+
+          cat <<EOF > fdssh.lnk
           system dos32a
           name fdssh.exe
-          file src\*.obj
+          file src/*.obj
           library wattcp.lib
           option stack=64k
           option quiet
-          "@
-          $linkerScript | Out-File -FilePath "fdssh.lnk"
-          
-          # Generate build.bat
-          $buildBat = @"
+          EOF
+
+          cat <<EOF > build.bat
           @echo off
           echo Building fdwolfssh for FreeDOS...
           wcc386 src\*.c -i=.\include -fpi87 -d2 -mf -dDWOLFSSL_USER_SETTINGS
-          echo Linking...
           wlink @fdssh.lnk
-          echo Finalizing with DOS32A...
           sb /b fdssh.exe
-          echo Done: FDSSH.EXE created.
-          "@
-          $buildBat | Out-File -FilePath "build.bat"
-          Write-Host "Configuration files created"
-      
-      - name: Build WolfSSH-DOS (If Watt32 Tools Available)
-        shell: pwsh
-        if: success()
-        run: |
-          if (Test-Path "build.bat") {
-            Write-Host "Build command exists"
-            # Note: Watt32 tools (wcc386, wlink) must be installed on the runner
-            # If not available, you can skip the build step and upload pre-built files
-          } else {
-            Write-Host "Build not attempted. Install Watt32 tools or upload pre-built exe."
-          }
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      
-      - name: Upload WolfSSH-DOS Bundle
+          echo Done.
+          EOF
+
+      - name: Upload Bundle
         uses: actions/upload-artifact@v4
         with:
-          name: wolfssh-dos-bundle
+          name: fdwolfssh-source-bundle
           path: |
             include/
             src/
             user_settings.h
             fdssh.lnk
             build.bat
-          if-no-files-found: ignore
-          retention-days: 7
